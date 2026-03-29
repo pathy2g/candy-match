@@ -16,7 +16,8 @@
     }
     canvas { display: block; border: 2px solid #2a1a4e; border-radius: 10px; cursor: grab; }
     canvas.grabbing { cursor: grabbing; }
-    #nameInput { position:fixed; display:none; font-size:18px; padding:8px 12px;
+    #nameInput, #passwordInput, #loginPasswordInput {
+      position:fixed; display:none; font-size:18px; padding:8px 12px;
       border-radius:8px; border:2px solid #a855f7; background:#1a0a2e;
       color:#fff; outline:none; text-align:center; z-index:10; }
   </style>
@@ -24,6 +25,8 @@
 <body>
 <canvas id="c"></canvas>
 <input id="nameInput" type="text" maxlength="16" placeholder="Enter username...">
+<input id="passwordInput" type="password" maxlength="64" placeholder="Choose a password...">
+<input id="loginPasswordInput" type="password" maxlength="64" placeholder="Enter password...">
 <script>
 // ── Setup ──────────────────────────────────────────────────────────
 const canvas = document.getElementById('c');
@@ -70,8 +73,9 @@ let pendingSwap = null;
 let pendingComplete = null;
 let combo = 0, score = 0, highScore = 0, highCombo = 0;
 let movesLeft = 50, newRecord = false, gameHighCombo = 0;
-let menuState = 'main'; // 'main' | 'profiles' | 'newProfile' | 'gameOver' | null
-let profiles = {}, currentProfileName = '', menuButtons = [];
+let menuState = 'main'; // 'main' | 'profiles' | 'newProfile' | 'login' | 'gameOver' | null
+let profiles = {}, currentProfileName = '', currentProfilePassword = '', menuButtons = [];
+let profileError = '', pendingLoginName = '';
 let audioCtx = null, audioBuffer = null;
 
 const particles     = [];
@@ -767,24 +771,33 @@ function onFallDone() {
 function applyScore(n) { score+=n*SCORE_PER_TILE*combo; highScore=Math.max(score,highScore); highCombo=Math.max(combo,highCombo); gameHighCombo=Math.max(combo,gameHighCombo); }
 
 // ── Profiles ──────────────────────────────────────────────────────
-function loadProfiles() {
-  try { profiles=JSON.parse(localStorage.getItem('candyProfiles')||'{}'); } catch(e) { profiles={}; }
-  currentProfileName=localStorage.getItem('candyCurrentProfile')||'';
+function getPanelDims() {
+  const pw=400;
+  const ph=(menuState==='newProfile'||menuState==='login')?380:340;
+  return {pw, ph, px:(W-pw)/2, py:(H-ph)/2};
 }
-function saveProfiles() {
-  localStorage.setItem('candyProfiles',JSON.stringify(profiles));
-  localStorage.setItem('candyCurrentProfile',currentProfileName);
+async function loadProfiles() {
+  try {
+    const res=await fetch('/api/profiles');
+    const list=await res.json();
+    profiles={};
+    list.forEach(p=>{ profiles[p.name]={highScore:p.highScore,highCombo:p.highCombo}; });
+  } catch(e) { profiles={}; }
 }
-function saveCurrentProfile() {
-  if (!currentProfileName) return;
-  profiles[currentProfileName]={highScore,highCombo};
-  saveProfiles();
+async function saveCurrentProfile() {
+  if (!currentProfileName||!currentProfilePassword) return;
+  try {
+    await fetch('/api/save',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:currentProfileName,password:currentProfilePassword,highScore,highCombo})});
+    profiles[currentProfileName]={highScore,highCombo};
+  } catch(e) {}
 }
 function showNameInput() {
+  const {py}=getPanelDims();
   const ni=document.getElementById('nameInput');
   const r=canvas.getBoundingClientRect(), s=r.width/W;
   ni.style.left=(r.left+(W/2-150)*s)+'px';
-  ni.style.top=(r.top+244*s)+'px';
+  ni.style.top=(r.top+(py+92)*s)+'px';
   ni.style.width=(300*s)+'px';
   ni.style.display='block'; ni.value=''; ni.focus();
 }
@@ -792,23 +805,68 @@ function hideNameInput() {
   const ni=document.getElementById('nameInput');
   ni.style.display='none'; ni.blur();
 }
+function showPasswordInput() {
+  const {py}=getPanelDims();
+  const pi=document.getElementById('passwordInput');
+  const r=canvas.getBoundingClientRect(), s=r.width/W;
+  pi.style.left=(r.left+(W/2-150)*s)+'px';
+  pi.style.top=(r.top+(py+150)*s)+'px';
+  pi.style.width=(300*s)+'px';
+  pi.style.display='block';
+}
+function hidePasswordInput() {
+  const pi=document.getElementById('passwordInput');
+  pi.style.display='none'; pi.blur();
+}
+function showLoginInput() {
+  const {py}=getPanelDims();
+  const li=document.getElementById('loginPasswordInput');
+  const r=canvas.getBoundingClientRect(), s=r.width/W;
+  li.style.left=(r.left+(W/2-150)*s)+'px';
+  li.style.top=(r.top+(py+110)*s)+'px';
+  li.style.width=(300*s)+'px';
+  li.style.display='block'; li.value=''; li.focus();
+}
+function hideLoginInput() {
+  const li=document.getElementById('loginPasswordInput');
+  li.style.display='none'; li.blur();
+}
 function startGame() {
   const p=profiles[currentProfileName]||{highScore:0,highCombo:0};
   score=0; combo=0; movesLeft=100; newRecord=false; gameHighCombo=0; highScore=p.highScore; highCombo=p.highCombo;
   particles.length=0; floatingTexts.length=0; beams.length=0;
-  initGrid(); menuState=null; hideNameInput();
+  initGrid(); menuState=null; hideNameInput(); hidePasswordInput();
 }
-function returnToMenu() {
-  saveCurrentProfile();
+async function returnToMenu() {
+  await saveCurrentProfile();
   phase='idle'; animPhase=''; pendingSwap=null; pendingComplete=null;
   particles.length=0; floatingTexts.length=0; beams.length=0;
   menuState='main';
 }
-function createProfile(name) {
-  name=name.trim(); if (!name) return;
-  if (!profiles[name]) profiles[name]={highScore:0,highCombo:0};
-  currentProfileName=name; saveProfiles();
-  menuState='main'; hideNameInput();
+async function createProfile(name, password) {
+  name=name.trim(); password=password.trim(); if (!name||!password) return;
+  const res=await fetch('/api/profiles',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name,password})});
+  const data=await res.json();
+  if (!data.ok) { profileError=data.error||'Could not create profile'; return; }
+  currentProfileName=name.toLowerCase().trim();
+  currentProfilePassword=password;
+  profiles[currentProfileName]={highScore:0,highCombo:0};
+  profileError='';
+  menuState='main'; hideNameInput(); hidePasswordInput();
+}
+async function loginProfile(name, password) {
+  password=password.trim(); if (!password) return;
+  const res=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name,password})});
+  const data=await res.json();
+  if (!data.ok) { profileError=data.error||'Wrong password'; return; }
+  currentProfileName=name;
+  currentProfilePassword=password;
+  profiles[name]={highScore:data.highScore,highCombo:data.highCombo};
+  highScore=data.highScore; highCombo=data.highCombo;
+  profileError='';
+  menuState='main'; hideLoginInput();
 }
 function handleMenuClick(m) {
   for (const b of menuButtons)
@@ -948,7 +1006,7 @@ function drawMenu() {
   ctx.fillStyle='rgba(0,0,0,0.80)'; ctx.fillRect(0,0,W,H);
 
   // Panel
-  const pw=400, ph=340, px=(W-pw)/2, py=(H-ph)/2;
+  const {pw,ph,px,py}=getPanelDims();
   ctx.fillStyle='#1a0835';
   roundRect(ctx,px,py,pw,ph,16); ctx.fill();
   ctx.shadowColor='#a855f7'; ctx.shadowBlur=18;
@@ -986,7 +1044,7 @@ function drawMenu() {
       menuBtn('PLAY',px+80,py+168,240,46,startGame,'#7c3aed');
       menuBtn('PROFILES',px+80,py+228,240,40,()=>{menuState='profiles';},'#4a1a8e');
     } else {
-      menuBtn('CREATE PROFILE',px+80,py+190,240,46,()=>{menuState='newProfile';showNameInput();},'#7c3aed');
+      menuBtn('CREATE PROFILE',px+80,py+190,240,46,()=>{profileError='';menuState='newProfile';showNameInput();showPasswordInput();},'#7c3aed');
     }
   }
 
@@ -1009,11 +1067,14 @@ function drawMenu() {
       ctx.textAlign='right'; ctx.fillStyle='#aaa'; ctx.font='12px "Segoe UI",sans-serif';
       ctx.fillText((p.highScore||0).toLocaleString()+'  x'+(p.highCombo||0),px+pw-30,by+20);
       ctx.restore();
-      menuButtons.push({x:px+20,y:by,w:pw-40,h:40,action:()=>{currentProfileName=name;saveProfiles();menuState='main';}});
+      menuButtons.push({x:px+20,y:by,w:pw-40,h:40,action:()=>{
+        if (name===currentProfileName) { menuState='main'; return; }
+        pendingLoginName=name; profileError=''; menuState='login'; setTimeout(showLoginInput,50);
+      }});
     });
 
     const by2=py+ph-90;
-    menuBtn('+ NEW PROFILE',px+80,by2,240,38,()=>{menuState='newProfile';showNameInput();},'#4a1a8e');
+    menuBtn('+ NEW PROFILE',px+80,by2,240,38,()=>{profileError='';menuState='newProfile';showNameInput();showPasswordInput();},'#4a1a8e');
     menuBtn('BACK',px+80,by2+48,240,34,()=>{menuState='main';},'#2a0a5e');
   }
 
@@ -1021,15 +1082,47 @@ function drawMenu() {
     ctx.font='bold 22px "Segoe UI",sans-serif'; ctx.fillStyle='#e0aaff';
     ctx.fillText('NEW PROFILE',W/2,py+50);
     ctx.font='14px "Segoe UI",sans-serif'; ctx.fillStyle='#bbb';
-    ctx.fillText('Enter a username below',W/2,py+76);
+    ctx.fillText('Choose a username and password',W/2,py+78);
 
-    // Input box outline (HTML <input> floats here)
+    // Username input outline
     ctx.strokeStyle='#a855f7'; ctx.lineWidth=2;
     roundRect(ctx,px+50,py+90,pw-100,44,8); ctx.stroke();
 
-    menuBtn('CREATE',px+80,py+158,240,48,()=>{createProfile(document.getElementById('nameInput').value);},'#7c3aed');
+    // Password input outline
+    roundRect(ctx,px+50,py+148,pw-100,44,8); ctx.stroke();
+
+    if (profileError) {
+      ctx.font='13px "Segoe UI",sans-serif'; ctx.fillStyle='#ff6b6b';
+      ctx.fillText(profileError,W/2,py+208);
+    }
+
+    menuBtn('CREATE',px+80,py+222,240,48,()=>{
+      createProfile(document.getElementById('nameInput').value,
+                    document.getElementById('passwordInput').value);
+    },'#7c3aed');
     const hasAny=Object.keys(profiles).length>0;
-    menuBtn('BACK',px+80,py+220,240,36,()=>{menuState=hasAny?'profiles':'main';hideNameInput();},'#2a0a5e');
+    menuBtn('BACK',px+80,py+280,240,36,()=>{profileError='';menuState=hasAny?'profiles':'main';hideNameInput();hidePasswordInput();},'#2a0a5e');
+  }
+
+  if (menuState==='login') {
+    ctx.font='bold 22px "Segoe UI",sans-serif'; ctx.fillStyle='#e0aaff';
+    ctx.fillText('ENTER PASSWORD',W/2,py+50);
+    ctx.font='16px "Segoe UI",sans-serif'; ctx.fillStyle='#ddd';
+    ctx.fillText(pendingLoginName,W/2,py+82);
+
+    // Password input outline
+    ctx.strokeStyle='#a855f7'; ctx.lineWidth=2;
+    roundRect(ctx,px+50,py+108,pw-100,44,8); ctx.stroke();
+
+    if (profileError) {
+      ctx.font='13px "Segoe UI",sans-serif'; ctx.fillStyle='#ff6b6b';
+      ctx.fillText(profileError,W/2,py+168);
+    }
+
+    menuBtn('LOG IN',px+80,py+182,240,48,()=>{
+      loginProfile(pendingLoginName,document.getElementById('loginPasswordInput').value);
+    },'#7c3aed');
+    menuBtn('BACK',px+80,py+240,240,36,()=>{profileError='';menuState='profiles';hideLoginInput();},'#2a0a5e');
   }
 
   if (menuState==='gameOver') {
@@ -1150,22 +1243,28 @@ function loop(now) {
   update(dt,now); render(now); requestAnimationFrame(loop);
 }
 document.getElementById('nameInput').addEventListener('keydown', e => {
-  if (e.key==='Enter') createProfile(e.target.value);
+  if (e.key==='Enter') document.getElementById('passwordInput').focus();
+});
+document.getElementById('passwordInput').addEventListener('keydown', e => {
+  if (e.key==='Enter') createProfile(
+    document.getElementById('nameInput').value,
+    document.getElementById('passwordInput').value
+  );
+});
+document.getElementById('loginPasswordInput').addEventListener('keydown', e => {
+  if (e.key==='Enter') loginProfile(pendingLoginName, e.target.value);
 });
 window.addEventListener('resize', () => {
-  if (menuState==='newProfile') showNameInput();
+  if (menuState==='newProfile') { showNameInput(); showPasswordInput(); }
+  if (menuState==='login') showLoginInput();
 });
 
-loadProfiles();
-if (!localStorage.getItem('candyScoresV2')) {
-  Object.keys(profiles).forEach(n=>{profiles[n].highScore=0;profiles[n].highCombo=0;});
-  saveProfiles(); localStorage.setItem('candyScoresV2','1');
-}
-if (!currentProfileName || !profiles[currentProfileName]) {
-  menuState='newProfile'; setTimeout(showNameInput, 50);
-} else {
-  menuState='main';
-}
+menuState='main';
+loadProfiles().then(() => {
+  if (!currentProfileName || !profiles[currentProfileName]) {
+    menuState='newProfile'; setTimeout(()=>{showNameInput();showPasswordInput();}, 50);
+  }
+});
 requestAnimationFrame(t=>{lastTime=t; requestAnimationFrame(loop);});
 </script>
 </body>
