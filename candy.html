@@ -16,7 +16,7 @@
     }
     canvas { display: block; border: 2px solid #2a1a4e; border-radius: 10px; cursor: grab; }
     canvas.grabbing { cursor: grabbing; }
-    #nameInput, #passwordInput, #loginPasswordInput {
+    #nameInput, #passwordInput {
       position:fixed; display:none; font-size:18px; padding:8px 12px;
       border-radius:8px; border:2px solid #a855f7; background:#1a0a2e;
       color:#fff; outline:none; text-align:center; z-index:10; }
@@ -25,19 +25,20 @@
 <body>
 <canvas id="c"></canvas>
 <input id="nameInput" type="text" maxlength="16" placeholder="Enter username...">
-<input id="passwordInput" type="password" maxlength="64" placeholder="Choose a password...">
-<input id="loginPasswordInput" type="password" maxlength="64" placeholder="Enter password...">
+<input id="passwordInput" type="password" maxlength="64" placeholder="Enter password...">
 <script>
 // ── Setup ──────────────────────────────────────────────────────────
 const canvas = document.getElementById('c');
 const ctx    = canvas.getContext('2d');
-const W = 560, H = 640;
+const W = 740, H = 640;
+const GAME_W = 558;   // right edge of game zone; leaderboard starts at x=560
+const GAME_CX = 279;  // horizontal centre of game area
 canvas.width = W; canvas.height = H;
 
 // ── Constants ──────────────────────────────────────────────────────
 const COLS = 6, ROWS = 6;
 const TILE = 82, GAP = 4, CELL = 86;
-const BOARD_X = (W - COLS * CELL) / 2;   // 22
+const BOARD_X = 22;   // fixed; game area is GAME_W=558, not W=740
 const BOARD_Y = 96;
 
 const GRAVITY   = 2200;   // px/s²
@@ -73,9 +74,10 @@ let pendingSwap = null;
 let pendingComplete = null;
 let combo = 0, score = 0, highScore = 0, highCombo = 0;
 let movesLeft = 50, newRecord = false, gameHighCombo = 0;
-let menuState = 'main'; // 'main' | 'profiles' | 'newProfile' | 'login' | 'gameOver' | null
+let menuState = 'landing'; // 'landing' | 'main' | 'newProfile' | 'gameOver' | null
 let profiles = {}, currentProfileName = '', currentProfilePassword = '', menuButtons = [];
-let profileError = '', pendingLoginName = '';
+let profileError = '';
+let leaderboard = [];   // top-10 profiles sorted by highScore DESC
 let audioCtx = null, audioBuffer = null;
 
 const particles     = [];
@@ -567,7 +569,7 @@ function drawParticles() {
 
 // ── Floating text ─────────────────────────────────────────────────
 function spawnCombo(n) {
-  floatingTexts.push({text:`×${n} COMBO!`, x:W/2, y:BOARD_Y+ROWS*CELL/2, alpha:1, vy:-85});
+  floatingTexts.push({text:`×${n} COMBO!`, x:GAME_CX, y:BOARD_Y+ROWS*CELL/2, alpha:1, vy:-85});
 }
 function updateFT(dt) {
   for (let i=floatingTexts.length-1;i>=0;i--) {
@@ -773,8 +775,18 @@ function applyScore(n) { score+=n*SCORE_PER_TILE*combo; highScore=Math.max(score
 // ── Profiles ──────────────────────────────────────────────────────
 function getPanelDims() {
   const pw=400;
-  const ph=(menuState==='newProfile'||menuState==='login')?380:340;
-  return {pw, ph, px:(W-pw)/2, py:(H-ph)/2};
+  let ph;
+  if (menuState==='landing')         ph=360;
+  else if (menuState==='newProfile') ph=380;
+  else if (menuState==='main')       ph=500;
+  else                               ph=340; // gameOver
+  return {pw, ph, px:(GAME_W-pw)/2, py:(H-ph)/2};
+}
+function computeLeaderboard() {
+  leaderboard=Object.entries(profiles)
+    .map(([name,d])=>({name,highScore:d.highScore||0,highCombo:d.highCombo||0}))
+    .sort((a,b)=>b.highScore-a.highScore)
+    .slice(0,10);
 }
 async function loadProfiles() {
   try {
@@ -782,7 +794,8 @@ async function loadProfiles() {
     const list=await res.json();
     profiles={};
     list.forEach(p=>{ profiles[p.name]={highScore:p.highScore,highCombo:p.highCombo}; });
-  } catch(e) { profiles={}; }
+    computeLeaderboard();
+  } catch(e) { profiles={}; computeLeaderboard(); }
 }
 async function saveCurrentProfile() {
   if (!currentProfileName||!currentProfilePassword) return;
@@ -790,13 +803,14 @@ async function saveCurrentProfile() {
     await fetch('/api/save',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({name:currentProfileName,password:currentProfilePassword,highScore,highCombo})});
     profiles[currentProfileName]={highScore,highCombo};
+    computeLeaderboard();
   } catch(e) {}
 }
 function showNameInput() {
   const {py}=getPanelDims();
   const ni=document.getElementById('nameInput');
   const r=canvas.getBoundingClientRect(), s=r.width/W;
-  ni.style.left=(r.left+(W/2-150)*s)+'px';
+  ni.style.left=(r.left+(GAME_CX-150)*s)+'px';
   ni.style.top=(r.top+(py+92)*s)+'px';
   ni.style.width=(300*s)+'px';
   ni.style.display='block'; ni.value=''; ni.focus();
@@ -809,29 +823,19 @@ function showPasswordInput() {
   const {py}=getPanelDims();
   const pi=document.getElementById('passwordInput');
   const r=canvas.getBoundingClientRect(), s=r.width/W;
-  pi.style.left=(r.left+(W/2-150)*s)+'px';
+  pi.style.left=(r.left+(GAME_CX-150)*s)+'px';
   pi.style.top=(r.top+(py+150)*s)+'px';
   pi.style.width=(300*s)+'px';
   pi.style.display='block';
+  pi.placeholder=(menuState==='landing')?'Enter password...':'Choose a password...';
+  if (menuState==='landing') { pi.value=''; }
 }
 function hidePasswordInput() {
   const pi=document.getElementById('passwordInput');
   pi.style.display='none'; pi.blur();
 }
-function showLoginInput() {
-  const {py}=getPanelDims();
-  const li=document.getElementById('loginPasswordInput');
-  const r=canvas.getBoundingClientRect(), s=r.width/W;
-  li.style.left=(r.left+(W/2-150)*s)+'px';
-  li.style.top=(r.top+(py+110)*s)+'px';
-  li.style.width=(300*s)+'px';
-  li.style.display='block'; li.value=''; li.focus();
-}
-function hideLoginInput() {
-  const li=document.getElementById('loginPasswordInput');
-  li.style.display='none'; li.blur();
-}
 function startGame() {
+  if (!currentProfileName) return;
   const p=profiles[currentProfileName]||{highScore:0,highCombo:0};
   score=0; combo=0; movesLeft=100; newRecord=false; gameHighCombo=0; highScore=p.highScore; highCombo=p.highCombo;
   particles.length=0; floatingTexts.length=0; beams.length=0;
@@ -843,6 +847,12 @@ async function returnToMenu() {
   particles.length=0; floatingTexts.length=0; beams.length=0;
   menuState='main';
 }
+function logOut() {
+  currentProfileName=''; currentProfilePassword='';
+  highScore=0; highCombo=0; score=0; combo=0; profileError='';
+  menuState='landing';
+  setTimeout(()=>{ showNameInput(); showPasswordInput(); }, 50);
+}
 async function createProfile(name, password) {
   name=name.trim(); password=password.trim(); if (!name||!password) return;
   const res=await fetch('/api/profiles',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -852,21 +862,24 @@ async function createProfile(name, password) {
   currentProfileName=name.toLowerCase().trim();
   currentProfilePassword=password;
   profiles[currentProfileName]={highScore:0,highCombo:0};
+  computeLeaderboard();
   profileError='';
   menuState='main'; hideNameInput(); hidePasswordInput();
 }
 async function loginProfile(name, password) {
-  password=password.trim(); if (!password) return;
+  name=name.trim().toLowerCase(); password=password.trim();
+  if (!name||!password) return;
   const res=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({name,password})});
   const data=await res.json();
-  if (!data.ok) { profileError=data.error||'Wrong password'; return; }
+  if (!data.ok) { profileError=data.error||'Wrong name or password'; return; }
   currentProfileName=name;
   currentProfilePassword=password;
   profiles[name]={highScore:data.highScore,highCombo:data.highCombo};
   highScore=data.highScore; highCombo=data.highCombo;
+  computeLeaderboard();
   profileError='';
-  menuState='main'; hideLoginInput();
+  menuState='main'; hideNameInput(); hidePasswordInput();
 }
 function handleMenuClick(m) {
   for (const b of menuButtons)
@@ -939,17 +952,18 @@ function render(now) {
   drawParticles();
   drawFT();
   drawHUD();
+  drawLeaderboard();
   drawMenu();
 }
 
 function drawHUD() {
-  // Title
+  // Title — centred over game area
   ctx.textAlign='center'; ctx.textBaseline='alphabetic';
   ctx.font='bold 22px "Segoe UI",sans-serif';
   ctx.fillStyle='rgba(180,100,255,.88)'; ctx.shadowColor='rgba(180,100,255,.5)'; ctx.shadowBlur=10;
-  ctx.fillText('CANDY MATCH', W/2, 36); ctx.shadowBlur=0;
+  ctx.fillText('CANDY MATCH', GAME_CX, 36); ctx.shadowBlur=0;
 
-  // Score (with current game best combo above value)
+  // Score panel
   ctx.fillStyle='rgba(0,0,0,.45)'; roundRect(ctx,14,44,150,50,8); ctx.fill();
   ctx.textAlign='left';
   ctx.fillStyle='#999'; ctx.font='11px "Segoe UI",sans-serif'; ctx.fillText('SCORE',26,59);
@@ -959,22 +973,22 @@ function drawHUD() {
   }
   ctx.fillStyle='#fff'; ctx.font='bold 20px "Segoe UI",sans-serif'; ctx.fillText(score.toLocaleString(),26,88);
 
-  // Moves remaining (center)
-  ctx.fillStyle='rgba(0,0,0,.45)'; roundRect(ctx,W/2-70,44,140,50,8); ctx.fill();
+  // Moves panel — centred over game area
+  ctx.fillStyle='rgba(0,0,0,.45)'; roundRect(ctx,GAME_CX-70,44,140,50,8); ctx.fill();
   ctx.textAlign='center';
-  ctx.fillStyle='#999'; ctx.font='11px "Segoe UI",sans-serif'; ctx.fillText('MOVES',W/2,59);
+  ctx.fillStyle='#999'; ctx.font='11px "Segoe UI",sans-serif'; ctx.fillText('MOVES',GAME_CX,59);
   const mc=movesLeft<=10?'#ff6b6b':movesLeft<=20?'#ffd966':'#fff';
-  ctx.fillStyle=mc; ctx.font='bold 22px "Segoe UI",sans-serif'; ctx.fillText(movesLeft,W/2,84);
+  ctx.fillStyle=mc; ctx.font='bold 22px "Segoe UI",sans-serif'; ctx.fillText(movesLeft,GAME_CX,84);
 
-  // Best score (with all-time best combo above value)
-  ctx.fillStyle='rgba(0,0,0,.45)'; roundRect(ctx,W-164,44,150,50,8); ctx.fill();
+  // Best score panel — right-aligned within game area
+  ctx.fillStyle='rgba(0,0,0,.45)'; roundRect(ctx,GAME_W-164,44,150,50,8); ctx.fill();
   ctx.textAlign='right';
-  ctx.fillStyle='#999'; ctx.font='11px "Segoe UI",sans-serif'; ctx.fillText('BEST',W-26,59);
+  ctx.fillStyle='#999'; ctx.font='11px "Segoe UI",sans-serif'; ctx.fillText('BEST',GAME_W-14,59);
   if (highCombo>0) {
     ctx.fillStyle='#c084fc'; ctx.font='11px "Segoe UI",sans-serif';
-    ctx.fillText('best x'+highCombo,W-26,72);
+    ctx.fillText('best x'+highCombo,GAME_W-14,72);
   }
-  ctx.fillStyle='#ffd966'; ctx.font='bold 20px "Segoe UI",sans-serif'; ctx.fillText(highScore.toLocaleString(),W-26,88);
+  ctx.fillStyle='#ffd966'; ctx.font='bold 20px "Segoe UI",sans-serif'; ctx.fillText(highScore.toLocaleString(),GAME_W-14,88);
 
   // MENU button (in-game only, top-left)
   if (menuState===null) {
@@ -986,6 +1000,77 @@ function drawHUD() {
   }
 
   ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+}
+
+function drawLeaderboard() {
+  if (menuState!==null||!leaderboard.length) return;
+  const LX=560, LY=44, LW=170, LH=H-54;
+  ctx.save();
+  ctx.fillStyle='rgba(18,8,38,0.82)';
+  roundRect(ctx,LX,LY,LW,LH,10); ctx.fill();
+  ctx.shadowColor='rgba(150,70,255,.25)'; ctx.shadowBlur=12;
+  ctx.strokeStyle='rgba(150,70,255,.35)'; ctx.lineWidth=1.5;
+  roundRect(ctx,LX,LY,LW,LH,10); ctx.stroke();
+  ctx.shadowBlur=0;
+
+  // Header
+  ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+  ctx.font='bold 12px "Segoe UI",sans-serif';
+  ctx.fillStyle='rgba(180,100,255,.9)';
+  ctx.fillText('LEADERBOARD', LX+LW/2, LY+18);
+
+  ctx.strokeStyle='rgba(150,70,255,.3)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(LX+8,LY+24); ctx.lineTo(LX+LW-8,LY+24); ctx.stroke();
+
+  // Column labels
+  ctx.font='9px "Segoe UI",sans-serif'; ctx.fillStyle='#777';
+  ctx.textAlign='left'; ctx.fillText('#', LX+8, LY+37);
+  ctx.fillText('NAME', LX+24, LY+37);
+  ctx.textAlign='right'; ctx.fillText('SCORE', LX+LW-8, LY+37);
+
+  const ROW_H=48, maxRows=Math.min(leaderboard.length,10);
+  for (let i=0;i<maxRows;i++) {
+    const e=leaderboard[i];
+    const isCur=(e.name===currentProfileName);
+    const ry=LY+44+i*ROW_H;
+
+    if (isCur) {
+      ctx.fillStyle='rgba(124,58,237,0.30)';
+      roundRect(ctx,LX+4,ry-14,LW-8,ROW_H-4,6); ctx.fill();
+      ctx.strokeStyle='rgba(168,85,247,0.55)'; ctx.lineWidth=1;
+      roundRect(ctx,LX+4,ry-14,LW-8,ROW_H-4,6); ctx.stroke();
+    }
+
+    // Rank
+    ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+    ctx.fillStyle=i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':isCur?'#e0aaff':'#888';
+    ctx.font=(isCur?'bold ':'')+'11px "Segoe UI",sans-serif';
+    ctx.fillText(String(i+1), LX+8, ry);
+
+    // Name
+    ctx.fillStyle=isCur?'#e0aaff':'#ccc';
+    const dn=e.name.length>9?e.name.slice(0,8)+'\u2026':e.name;
+    ctx.fillText(dn, LX+24, ry);
+
+    // Score
+    ctx.textAlign='right';
+    ctx.fillStyle=isCur?'#ffd966':'#aaa';
+    ctx.fillText(e.highScore.toLocaleString(), LX+LW-8, ry);
+
+    // Combo sub-line
+    if (e.highCombo>0) {
+      ctx.fillStyle=isCur?'#c084fc':'#555';
+      ctx.font='9px "Segoe UI",sans-serif';
+      ctx.fillText('x'+e.highCombo, LX+LW-8, ry+13);
+    }
+
+    // Row separator
+    if (i<maxRows-1) {
+      ctx.strokeStyle='rgba(255,255,255,0.05)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(LX+8,ry+ROW_H-8); ctx.lineTo(LX+LW-8,ry+ROW_H-8); ctx.stroke();
+    }
+  }
+  ctx.restore();
 }
 
 function menuBtn(label,bx,by,bw,bh,action,col) {
@@ -1002,11 +1087,12 @@ function drawMenu() {
   if (menuState===null) return;
   ctx.save();
 
-  // Overlay
+  // Full-canvas overlay
   ctx.fillStyle='rgba(0,0,0,0.80)'; ctx.fillRect(0,0,W,H);
 
   // Panel
   const {pw,ph,px,py}=getPanelDims();
+  const cx=px+pw/2;  // = 79+200 = 279 = GAME_CX
   ctx.fillStyle='#1a0835';
   roundRect(ctx,px,py,pw,ph,16); ctx.fill();
   ctx.shadowColor='#a855f7'; ctx.shadowBlur=18;
@@ -1014,8 +1100,9 @@ function drawMenu() {
   roundRect(ctx,px,py,pw,ph,16); ctx.stroke();
   ctx.shadowBlur=0;
 
-  // X close button (only when a game is in progress, not on game over)
-  const gameInProgress=menuState!=='gameOver'&&Array.from({length:ROWS},(_,r)=>r).some(r=>grid[r].some(c=>c));
+  // X close button — not on landing screen
+  const gameInProgress=menuState!=='gameOver'&&menuState!=='landing'&&
+                       Array.from({length:ROWS},(_,r)=>r).some(r=>grid[r].some(c=>c));
   if (gameInProgress) {
     const xr=px+pw-38, xy=py+8, xsz=26;
     ctx.fillStyle='rgba(255,255,255,0.08)'; roundRect(ctx,xr,xy,xsz,xsz,6); ctx.fill();
@@ -1027,134 +1114,153 @@ function drawMenu() {
 
   ctx.textAlign='center'; ctx.textBaseline='alphabetic';
 
-  if (menuState==='main') {
-    ctx.font='bold 26px "Segoe UI",sans-serif';
+  // ── LANDING ──────────────────────────────────────────────────────
+  if (menuState==='landing') {
+    ctx.font='bold 28px "Segoe UI",sans-serif';
     ctx.fillStyle='#e0aaff'; ctx.shadowColor='rgba(180,100,255,.7)'; ctx.shadowBlur=14;
-    ctx.fillText('CANDY MATCH',W/2,py+50); ctx.shadowBlur=0;
+    ctx.fillText('CANDY MATCH',cx,py+52); ctx.shadowBlur=0;
 
-    const p=profiles[currentProfileName]||{highScore:0,highCombo:0};
-    ctx.font='17px "Segoe UI",sans-serif'; ctx.fillStyle='#ddd';
-    ctx.fillText(currentProfileName,W/2,py+86);
-    ctx.font='14px "Segoe UI",sans-serif';
-    ctx.fillStyle='#ffd966'; ctx.fillText('Best Score: '+(p.highScore||0).toLocaleString(),W/2,py+116);
-    ctx.fillStyle='#ff9ff3'; ctx.fillText('Best Combo: '+(p.highCombo>0?'x'+p.highCombo:'-'),W/2,py+142);
+    ctx.font='14px "Segoe UI",sans-serif'; ctx.fillStyle='#888';
+    ctx.fillText('Sign in to play',cx,py+80);
 
-    const hasAny=Object.keys(profiles).length>0;
-    if (hasAny) {
-      menuBtn('PLAY',px+80,py+168,240,46,startGame,'#7c3aed');
-      menuBtn('PROFILES',px+80,py+228,240,40,()=>{menuState='profiles';},'#4a1a8e');
-    } else {
-      menuBtn('CREATE PROFILE',px+80,py+190,240,46,()=>{profileError='';menuState='newProfile';showNameInput();showPasswordInput();},'#7c3aed');
+    // Input outlines (HTML inputs overlay these)
+    ctx.strokeStyle='#a855f7'; ctx.lineWidth=2;
+    roundRect(ctx,px+50,py+90,pw-100,44,8); ctx.stroke();   // username
+    roundRect(ctx,px+50,py+148,pw-100,44,8); ctx.stroke();  // password
+
+    if (profileError) {
+      ctx.font='13px "Segoe UI",sans-serif'; ctx.fillStyle='#ff6b6b';
+      ctx.fillText(profileError,cx,py+210);
     }
+
+    menuBtn('LOG IN',px+80,py+224,240,48,()=>{
+      loginProfile(
+        document.getElementById('nameInput').value,
+        document.getElementById('passwordInput').value
+      );
+    },'#7c3aed');
+
+    menuBtn('Create new profile',px+80,py+284,240,36,()=>{
+      profileError=''; menuState='newProfile';
+      setTimeout(()=>{ showNameInput(); showPasswordInput(); },50);
+    },'#2a0a5e');
   }
 
-  if (menuState==='profiles') {
-    ctx.font='bold 19px "Segoe UI",sans-serif'; ctx.fillStyle='#e0aaff';
-    ctx.fillText('SELECT PROFILE',W/2,py+44);
+  // ── MAIN MENU ─────────────────────────────────────────────────────
+  if (menuState==='main') {
+    ctx.font='bold 24px "Segoe UI",sans-serif';
+    ctx.fillStyle='#e0aaff'; ctx.shadowColor='rgba(180,100,255,.7)'; ctx.shadowBlur=12;
+    ctx.fillText('CANDY MATCH',cx,py+44); ctx.shadowBlur=0;
 
-    const names=Object.keys(profiles);
-    names.slice(0,5).forEach((name,i)=>{
-      const isCur=name===currentProfileName;
-      const by=py+62+i*48;
-      const p=profiles[name];
-      ctx.save();
-      ctx.fillStyle=isCur?'rgba(124,58,237,0.45)':'rgba(255,255,255,0.08)';
-      roundRect(ctx,px+20,by,pw-40,40,8); ctx.fill();
-      if (isCur) { ctx.shadowColor='#a855f7'; ctx.shadowBlur=8; ctx.strokeStyle='#a855f7'; ctx.lineWidth=1.5; roundRect(ctx,px+20,by,pw-40,40,8); ctx.stroke(); ctx.shadowBlur=0; }
-      ctx.textAlign='left'; ctx.textBaseline='middle';
-      ctx.fillStyle=isCur?'#e0aaff':'#ddd'; ctx.font=(isCur?'bold ':'')+'14px "Segoe UI",sans-serif';
-      ctx.fillText((isCur?'\u2713  ':'')+name,px+36,by+20);
-      ctx.textAlign='right'; ctx.fillStyle='#aaa'; ctx.font='12px "Segoe UI",sans-serif';
-      ctx.fillText((p.highScore||0).toLocaleString()+'  x'+(p.highCombo||0),px+pw-30,by+20);
-      ctx.restore();
-      menuButtons.push({x:px+20,y:by,w:pw-40,h:40,action:()=>{
-        if (name===currentProfileName) { menuState='main'; return; }
-        pendingLoginName=name; profileError=''; menuState='login'; setTimeout(showLoginInput,50);
-      }});
-    });
+    ctx.font='bold 15px "Segoe UI",sans-serif'; ctx.fillStyle='#fff';
+    ctx.fillText(currentProfileName,cx,py+72);
+    const p=profiles[currentProfileName]||{highScore:0,highCombo:0};
+    ctx.font='13px "Segoe UI",sans-serif';
+    ctx.fillStyle='#ffd966'; ctx.fillText('Best Score: '+(p.highScore||0).toLocaleString(),cx,py+96);
+    ctx.fillStyle='#ff9ff3'; ctx.fillText('Best Combo: '+(p.highCombo>0?'x'+p.highCombo:'-'),cx,py+118);
 
-    const by2=py+ph-90;
-    menuBtn('+ NEW PROFILE',px+80,by2,240,38,()=>{profileError='';menuState='newProfile';showNameInput();showPasswordInput();},'#4a1a8e');
-    menuBtn('BACK',px+80,by2+48,240,34,()=>{menuState='main';},'#2a0a5e');
+    menuBtn('PLAY',px+80,py+136,240,46,startGame,'#7c3aed');
+
+    // Leaderboard inside panel
+    ctx.font='bold 12px "Segoe UI",sans-serif'; ctx.fillStyle='rgba(180,100,255,.8)';
+    ctx.fillText('TOP 10 LEADERBOARD',cx,py+210);
+    ctx.strokeStyle='rgba(150,70,255,.3)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(px+20,py+216); ctx.lineTo(px+pw-20,py+216); ctx.stroke();
+
+    // Column labels
+    ctx.font='9px "Segoe UI",sans-serif'; ctx.fillStyle='#666';
+    ctx.textAlign='left'; ctx.fillText('#',px+20,py+230);
+    ctx.fillText('NAME',px+40,py+230);
+    ctx.textAlign='right'; ctx.fillText('SCORE / COMBO',px+pw-20,py+230);
+
+    const maxLB=Math.min(leaderboard.length,10);
+    for (let i=0;i<maxLB;i++) {
+      const e=leaderboard[i];
+      const isCur=(e.name===currentProfileName);
+      const ry=py+244+i*20;
+      if (isCur) {
+        ctx.fillStyle='rgba(124,58,237,0.35)';
+        roundRect(ctx,px+14,ry-13,pw-28,18,4); ctx.fill();
+      }
+      ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+      ctx.fillStyle=i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':isCur?'#e0aaff':'#888';
+      ctx.font=(isCur?'bold ':'')+'10px "Segoe UI",sans-serif';
+      ctx.fillText(String(i+1),px+20,ry);
+      ctx.fillStyle=isCur?'#e0aaff':'#ccc';
+      const dn=e.name.length>14?e.name.slice(0,13)+'\u2026':e.name;
+      ctx.fillText(dn,px+40,ry);
+      ctx.textAlign='right';
+      ctx.fillStyle=isCur?'#ffd966':'#aaa';
+      const cs=e.highCombo>0?'  x'+e.highCombo:'';
+      ctx.fillText(e.highScore.toLocaleString()+cs,px+pw-20,ry);
+    }
+
+    menuBtn('LOG OUT',px+80,py+440,240,36,logOut,'#3b1060');
   }
 
+  // ── NEW PROFILE ───────────────────────────────────────────────────
   if (menuState==='newProfile') {
     ctx.font='bold 22px "Segoe UI",sans-serif'; ctx.fillStyle='#e0aaff';
-    ctx.fillText('NEW PROFILE',W/2,py+50);
+    ctx.fillText('NEW PROFILE',cx,py+50);
     ctx.font='14px "Segoe UI",sans-serif'; ctx.fillStyle='#bbb';
-    ctx.fillText('Choose a username and password',W/2,py+78);
+    ctx.fillText('Choose a username and password',cx,py+78);
 
-    // Username input outline
     ctx.strokeStyle='#a855f7'; ctx.lineWidth=2;
     roundRect(ctx,px+50,py+90,pw-100,44,8); ctx.stroke();
-
-    // Password input outline
     roundRect(ctx,px+50,py+148,pw-100,44,8); ctx.stroke();
 
     if (profileError) {
       ctx.font='13px "Segoe UI",sans-serif'; ctx.fillStyle='#ff6b6b';
-      ctx.fillText(profileError,W/2,py+208);
+      ctx.fillText(profileError,cx,py+208);
     }
 
     menuBtn('CREATE',px+80,py+222,240,48,()=>{
       createProfile(document.getElementById('nameInput').value,
                     document.getElementById('passwordInput').value);
     },'#7c3aed');
-    const hasAny=Object.keys(profiles).length>0;
-    menuBtn('BACK',px+80,py+280,240,36,()=>{profileError='';menuState=hasAny?'profiles':'main';hideNameInput();hidePasswordInput();},'#2a0a5e');
+    menuBtn('BACK',px+80,py+280,240,36,()=>{
+      profileError=''; menuState='landing';
+      hideNameInput(); hidePasswordInput();
+      setTimeout(()=>{ showNameInput(); showPasswordInput(); },50);
+    },'#2a0a5e');
   }
 
-  if (menuState==='login') {
-    ctx.font='bold 22px "Segoe UI",sans-serif'; ctx.fillStyle='#e0aaff';
-    ctx.fillText('ENTER PASSWORD',W/2,py+50);
-    ctx.font='16px "Segoe UI",sans-serif'; ctx.fillStyle='#ddd';
-    ctx.fillText(pendingLoginName,W/2,py+82);
-
-    // Password input outline
-    ctx.strokeStyle='#a855f7'; ctx.lineWidth=2;
-    roundRect(ctx,px+50,py+108,pw-100,44,8); ctx.stroke();
-
-    if (profileError) {
-      ctx.font='13px "Segoe UI",sans-serif'; ctx.fillStyle='#ff6b6b';
-      ctx.fillText(profileError,W/2,py+168);
-    }
-
-    menuBtn('LOG IN',px+80,py+182,240,48,()=>{
-      loginProfile(pendingLoginName,document.getElementById('loginPasswordInput').value);
-    },'#7c3aed');
-    menuBtn('BACK',px+80,py+240,240,36,()=>{profileError='';menuState='profiles';hideLoginInput();},'#2a0a5e');
-  }
-
+  // ── GAME OVER ─────────────────────────────────────────────────────
   if (menuState==='gameOver') {
     ctx.font='bold 28px "Segoe UI",sans-serif';
     ctx.fillStyle='#ff6b6b'; ctx.shadowColor='rgba(255,80,80,.7)'; ctx.shadowBlur=16;
-    ctx.fillText('GAME OVER',W/2,py+50); ctx.shadowBlur=0;
+    ctx.fillText('GAME OVER',cx,py+50); ctx.shadowBlur=0;
 
     ctx.font='14px "Segoe UI",sans-serif';
-    ctx.fillStyle='#bbb'; ctx.fillText('100 moves used',W/2,py+76);
+    ctx.fillStyle='#bbb'; ctx.fillText('100 moves used',cx,py+76);
 
-    // Score
     ctx.font='bold 32px "Segoe UI",sans-serif'; ctx.fillStyle='#fff';
-    ctx.fillText(score.toLocaleString(),W/2,py+124);
+    ctx.fillText(score.toLocaleString(),cx,py+118);
     ctx.font='13px "Segoe UI",sans-serif'; ctx.fillStyle='#999';
-    ctx.fillText('FINAL SCORE',W/2,py+144);
+    ctx.fillText('FINAL SCORE',cx,py+138);
 
-    // New record badge
     if (newRecord) {
       ctx.font='bold 13px "Segoe UI",sans-serif'; ctx.fillStyle='#ffd966';
       ctx.shadowColor='rgba(255,210,0,.6)'; ctx.shadowBlur=10;
-      ctx.fillText('NEW BEST SCORE!',W/2,py+168); ctx.shadowBlur=0;
+      ctx.fillText('NEW BEST SCORE!',cx,py+162); ctx.shadowBlur=0;
     }
 
-    // Stats row
-    const statsY=newRecord?py+192:py+172;
+    // Leaderboard rank
+    const myRank=leaderboard.findIndex(e=>e.name===currentProfileName);
+    const rankY=newRecord?py+182:py+162;
+    if (myRank>=0) {
+      ctx.font='13px "Segoe UI",sans-serif'; ctx.fillStyle='#c084fc';
+      ctx.fillText('Your rank: #'+(myRank+1)+' of '+leaderboard.length,cx,rankY);
+    }
+
+    const statsY=rankY+(myRank>=0?22:0);
     const p=profiles[currentProfileName]||{highScore:0,highCombo:0};
     ctx.font='13px "Segoe UI",sans-serif';
-    ctx.fillStyle='#ffd966'; ctx.fillText('Best Score: '+(p.highScore||0).toLocaleString(),W/2,statsY);
-    ctx.fillStyle='#ff9ff3'; ctx.fillText('Best Combo: '+(p.highCombo>0?'x'+p.highCombo:'-'),W/2,statsY+22);
+    ctx.fillStyle='#ffd966'; ctx.fillText('Best Score: '+(p.highScore||0).toLocaleString(),cx,statsY);
+    ctx.fillStyle='#ff9ff3'; ctx.fillText('Best Combo: '+(p.highCombo>0?'x'+p.highCombo:'-'),cx,statsY+22);
 
-    menuBtn('PLAY AGAIN',px+80,py+232,240,44,startGame,'#7c3aed');
-    menuBtn('MAIN MENU',px+80,py+288,240,36,()=>{ menuState='main'; },'#2a0a5e');
+    menuBtn('PLAY AGAIN',px+80,py+242,240,44,startGame,'#7c3aed');
+    menuBtn('MAIN MENU',px+80,py+298,240,36,()=>{ menuState='main'; },'#2a0a5e');
   }
 
   ctx.restore();
@@ -1246,24 +1352,21 @@ document.getElementById('nameInput').addEventListener('keydown', e => {
   if (e.key==='Enter') document.getElementById('passwordInput').focus();
 });
 document.getElementById('passwordInput').addEventListener('keydown', e => {
-  if (e.key==='Enter') createProfile(
-    document.getElementById('nameInput').value,
-    document.getElementById('passwordInput').value
-  );
-});
-document.getElementById('loginPasswordInput').addEventListener('keydown', e => {
-  if (e.key==='Enter') loginProfile(pendingLoginName, e.target.value);
+  if (e.key==='Enter') {
+    if (menuState==='landing') {
+      loginProfile(document.getElementById('nameInput').value, e.target.value);
+    } else if (menuState==='newProfile') {
+      createProfile(document.getElementById('nameInput').value, e.target.value);
+    }
+  }
 });
 window.addEventListener('resize', () => {
-  if (menuState==='newProfile') { showNameInput(); showPasswordInput(); }
-  if (menuState==='login') showLoginInput();
+  if (menuState==='landing'||menuState==='newProfile') { showNameInput(); showPasswordInput(); }
 });
 
-menuState='main';
-loadProfiles().then(() => {
-  if (!currentProfileName || !profiles[currentProfileName]) {
-    menuState='newProfile'; setTimeout(()=>{showNameInput();showPasswordInput();}, 50);
-  }
+menuState='landing';
+loadProfiles().then(()=>{
+  setTimeout(()=>{ showNameInput(); showPasswordInput(); }, 50);
 });
 requestAnimationFrame(t=>{lastTime=t; requestAnimationFrame(loop);});
 </script>
