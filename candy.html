@@ -18,7 +18,7 @@
     canvas.grabbing { cursor: grabbing; }
     #nameInput, #passwordInput {
       position:fixed; display:none; font-size:18px; padding:8px 12px;
-      border-radius:8px; border:none; background:#1a0a2e;
+      border-radius:8px; border:2px solid #a855f7; background:#1a0a2e;
       color:#fff; outline:none; text-align:center; z-index:10; }
   </style>
 </head>
@@ -1116,10 +1116,6 @@ function drawMenu() {
     ctx.font='14px "Segoe UI",sans-serif'; ctx.fillStyle='#888';
     ctx.fillText('Sign in to play',cx,py+80);
 
-    // Input outlines (HTML inputs overlay these)
-    ctx.strokeStyle='#a855f7'; ctx.lineWidth=2;
-    roundRect(ctx,px+50,py+90,pw-100,44,8); ctx.stroke();   // username
-    roundRect(ctx,px+50,py+148,pw-100,44,8); ctx.stroke();  // password
 
     if (profileError) {
       ctx.font='13px "Segoe UI",sans-serif'; ctx.fillStyle='#ff6b6b';
@@ -1192,9 +1188,6 @@ function drawMenu() {
     ctx.font='14px "Segoe UI",sans-serif'; ctx.fillStyle='#bbb';
     ctx.fillText('Choose a username and password',cx,py+78);
 
-    ctx.strokeStyle='#a855f7'; ctx.lineWidth=2;
-    roundRect(ctx,px+50,py+90,pw-100,44,8); ctx.stroke();
-    roundRect(ctx,px+50,py+148,pw-100,44,8); ctx.stroke();
 
     if (profileError) {
       ctx.font='13px "Segoe UI",sans-serif'; ctx.fillStyle='#ff6b6b';
