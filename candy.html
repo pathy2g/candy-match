@@ -1022,15 +1022,11 @@ function drawLeaderboard() {
   ctx.strokeStyle='rgba(150,70,255,.3)'; ctx.lineWidth=1;
   ctx.beginPath(); ctx.moveTo(LX+8,LY+24); ctx.lineTo(LX+LW-8,LY+24); ctx.stroke();
 
-  // Column labels
-  ctx.font='9px "Segoe UI",sans-serif'; ctx.fillStyle='#777';
-  ctx.textAlign='left'; ctx.fillText('#  NAME / SCORE', LX+8, LY+38);
-
   const ROW_H=52, maxRows=Math.min(leaderboard.length,10);
   for (let i=0;i<maxRows;i++) {
     const e=leaderboard[i];
     const isCur=(e.name===currentProfileName);
-    const ry=LY+48+i*ROW_H;
+    const ry=LY+42+i*ROW_H;
 
     // Row highlight for current player
     if (isCur) {

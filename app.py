@@ -1,27 +1,31 @@
 from flask import Flask, request, jsonify, send_from_directory
 from werkzeug.security import generate_password_hash, check_password_hash
-import sqlite3
+import psycopg2
+import psycopg2.extras
+import psycopg2.errors
 import os
 
-DB = 'candy_profiles.db'
+DATABASE_URL = os.environ.get('DATABASE_URL')
 app = Flask(__name__, static_folder='.')
 app.config['MAX_CONTENT_LENGTH'] = 1_000_000
 
 
 def get_db():
-    db = sqlite3.connect(DB)
-    db.row_factory = sqlite3.Row
-    return db
+    conn = psycopg2.connect(DATABASE_URL)
+    return conn
 
 
 def init_db():
-    with get_db() as db:
-        db.execute('''CREATE TABLE IF NOT EXISTS profiles (
+    conn = get_db()
+    with conn.cursor() as cur:
+        cur.execute('''CREATE TABLE IF NOT EXISTS profiles (
             name       TEXT PRIMARY KEY,
             password   TEXT NOT NULL,
             high_score INTEGER DEFAULT 0,
             high_combo INTEGER DEFAULT 0
         )''')
+    conn.commit()
+    conn.close()
 
 
 @app.route('/')
@@ -36,10 +40,11 @@ def static_files(filename):
 
 @app.route('/api/profiles', methods=['GET'])
 def list_profiles():
-    with get_db() as db:
-        rows = db.execute(
-            'SELECT name, high_score, high_combo FROM profiles ORDER BY high_score DESC'
-        ).fetchall()
+    conn = get_db()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute('SELECT name, high_score, high_combo FROM profiles ORDER BY high_score DESC')
+        rows = cur.fetchall()
+    conn.close()
     return jsonify([
         {'name': r['name'], 'highScore': r['high_score'], 'highCombo': r['high_combo']}
         for r in rows
@@ -56,13 +61,16 @@ def create_profile():
     if len(name) > 16 or len(password) > 128:
         return jsonify({'ok': False, 'error': 'Input too long'}), 400
     try:
-        with get_db() as db:
-            db.execute(
-                'INSERT INTO profiles (name, password) VALUES (?, ?)',
+        conn = get_db()
+        with conn.cursor() as cur:
+            cur.execute(
+                'INSERT INTO profiles (name, password) VALUES (%s, %s)',
                 (name, generate_password_hash(password))
             )
+        conn.commit()
+        conn.close()
         return jsonify({'ok': True})
-    except sqlite3.IntegrityError:
+    except psycopg2.errors.UniqueViolation:
         return jsonify({'ok': False, 'error': 'Name already taken'}), 409
 
 
@@ -71,8 +79,11 @@ def login():
     data = request.get_json()
     name = (data.get('name') or '').strip().lower()
     password = (data.get('password') or '').strip()
-    with get_db() as db:
-        row = db.execute('SELECT * FROM profiles WHERE name=?', (name,)).fetchone()
+    conn = get_db()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute('SELECT * FROM profiles WHERE name=%s', (name,))
+        row = cur.fetchone()
+    conn.close()
     if not row or not check_password_hash(row['password'], password):
         return jsonify({'ok': False, 'error': 'Wrong name or password'}), 401
     return jsonify({'ok': True, 'highScore': row['high_score'], 'highCombo': row['high_combo']})
@@ -83,17 +94,22 @@ def save_profile():
     data = request.get_json()
     name = (data.get('name') or '').strip().lower()
     password = (data.get('password') or '').strip()
-    with get_db() as db:
-        row = db.execute('SELECT * FROM profiles WHERE name=?', (name,)).fetchone()
+    conn = get_db()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute('SELECT * FROM profiles WHERE name=%s', (name,))
+        row = cur.fetchone()
     if not row or not check_password_hash(row['password'], password):
+        conn.close()
         return jsonify({'ok': False, 'error': 'Auth failed'}), 401
     hs = int(data.get('highScore', 0))
     hc = int(data.get('highCombo', 0))
-    with get_db() as db:
-        db.execute(
-            'UPDATE profiles SET high_score=?, high_combo=? WHERE name=?',
+    with conn.cursor() as cur:
+        cur.execute(
+            'UPDATE profiles SET high_score=%s, high_combo=%s WHERE name=%s',
             (hs, hc, name)
         )
+    conn.commit()
+    conn.close()
     return jsonify({'ok': True})
 
 
