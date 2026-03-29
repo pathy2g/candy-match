@@ -39,7 +39,7 @@ canvas.width = W; canvas.height = H;
 const COLS = 6, ROWS = 6;
 const TILE = 82, GAP = 4, CELL = 86;
 const BOARD_X = 22;   // fixed; game area is GAME_W=558, not W=740
-const BOARD_Y = 96;
+const BOARD_Y = 112;
 
 const GRAVITY   = 2200;   // px/s²
 const BOUNCE    = 0.30;
@@ -1024,50 +1024,47 @@ function drawLeaderboard() {
 
   // Column labels
   ctx.font='9px "Segoe UI",sans-serif'; ctx.fillStyle='#777';
-  ctx.textAlign='left'; ctx.fillText('#', LX+8, LY+37);
-  ctx.fillText('NAME', LX+24, LY+37);
-  ctx.textAlign='right'; ctx.fillText('SCORE', LX+LW-8, LY+37);
+  ctx.textAlign='left'; ctx.fillText('#  NAME / SCORE', LX+8, LY+38);
 
-  const ROW_H=48, maxRows=Math.min(leaderboard.length,10);
+  const ROW_H=52, maxRows=Math.min(leaderboard.length,10);
   for (let i=0;i<maxRows;i++) {
     const e=leaderboard[i];
     const isCur=(e.name===currentProfileName);
-    const ry=LY+44+i*ROW_H;
+    const ry=LY+48+i*ROW_H;
 
+    // Row highlight for current player
     if (isCur) {
       ctx.fillStyle='rgba(124,58,237,0.30)';
-      roundRect(ctx,LX+4,ry-14,LW-8,ROW_H-4,6); ctx.fill();
+      roundRect(ctx,LX+4,ry-16,LW-8,ROW_H-2,6); ctx.fill();
       ctx.strokeStyle='rgba(168,85,247,0.55)'; ctx.lineWidth=1;
-      roundRect(ctx,LX+4,ry-14,LW-8,ROW_H-4,6); ctx.stroke();
+      roundRect(ctx,LX+4,ry-16,LW-8,ROW_H-2,6); ctx.stroke();
     }
 
-    // Rank
+    // Line 1: rank + name
     ctx.textAlign='left'; ctx.textBaseline='alphabetic';
-    ctx.fillStyle=i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':isCur?'#e0aaff':'#888';
-    ctx.font=(isCur?'bold ':'')+'11px "Segoe UI",sans-serif';
+    ctx.fillStyle=i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':isCur?'#e0aaff':'#999';
+    ctx.font='bold 10px "Segoe UI",sans-serif';
     ctx.fillText(String(i+1), LX+8, ry);
 
-    // Name
-    ctx.fillStyle=isCur?'#e0aaff':'#ccc';
-    const dn=e.name.length>9?e.name.slice(0,8)+'\u2026':e.name;
-    ctx.fillText(dn, LX+24, ry);
+    ctx.fillStyle=isCur?'#e0aaff':'#ddd';
+    ctx.font=(isCur?'bold ':'')+'11px "Segoe UI",sans-serif';
+    const dn=e.name.length>11?e.name.slice(0,10)+'\u2026':e.name;
+    ctx.fillText(dn, LX+22, ry);
 
-    // Score
-    ctx.textAlign='right';
+    // Line 2: score + combo (below name)
+    ctx.textAlign='left';
     ctx.fillStyle=isCur?'#ffd966':'#aaa';
-    ctx.fillText(e.highScore.toLocaleString(), LX+LW-8, ry);
-
-    // Combo sub-line
+    ctx.font='10px "Segoe UI",sans-serif';
+    ctx.fillText(e.highScore.toLocaleString(), LX+22, ry+15);
     if (e.highCombo>0) {
-      ctx.fillStyle=isCur?'#c084fc':'#555';
-      ctx.font='9px "Segoe UI",sans-serif';
-      ctx.fillText('x'+e.highCombo, LX+LW-8, ry+13);
+      ctx.fillStyle=isCur?'#c084fc':'#666';
+      ctx.fillText('x'+e.highCombo, LX+22+60, ry+15);
     }
 
     // Row separator
     if (i<maxRows-1) {
       ctx.strokeStyle='rgba(255,255,255,0.05)'; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.moveTo(LX+8,ry+ROW_H-8); ctx.lineTo(LX+LW-8,ry+ROW_H-8); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(LX+8,ry+ROW_H-6); ctx.lineTo(LX+LW-8,ry+ROW_H-6); ctx.stroke();
     }
   }
   ctx.restore();
