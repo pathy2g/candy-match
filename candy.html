@@ -368,7 +368,7 @@ function expandChains(removeKeys, preActivated=new Set()) {
   }
 }
 
-function checkBoard() {
+function checkBoard(hint1Row=-1, hint1Col=-1, hint2Row=-1, hint2Col=-1) {
   const transformKeys=new Set();       // bomb transforms: key
   const laserMap=new Map();            // laser transforms: key → dir
   const removeKeys=new Set();
@@ -385,8 +385,11 @@ function checkBoard() {
         else removeKeys.add(`${row},${col}`);
       }
     } else {
-      transformKeys.add(`${r},${c}`);
-      removeKeys.add(`${r+1},${c}`); removeKeys.add(`${r},${c+1}`); removeKeys.add(`${r+1},${c+1}`);
+      const cells2x2flat=[{row:r,col:c},{row:r,col:c+1},{row:r+1,col:c},{row:r+1,col:c+1}];
+      const hintCell=cells2x2flat.find(({row,col})=>(row===hint1Row&&col===hint1Col)||(row===hint2Row&&col===hint2Col));
+      const bombCell=hintCell||{row:r,col:c};
+      transformKeys.add(`${bombCell.row},${bombCell.col}`);
+      for (const {row,col} of cells2x2flat) { if (row!==bombCell.row||col!==bombCell.col) removeKeys.add(`${row},${col}`); }
     }
   }
 
@@ -409,7 +412,8 @@ function checkBoard() {
       else if (t.isLaser) { for (const {row:lr,col:lc} of getLaserCells(row,col,t.laserDir)) removeKeys.add(`${lr},${lc}`); }
       for (let i=0;i<free.length;i++) { if (i!==specIdx) removeKeys.add(`${free[i].row},${free[i].col}`); }
     } else if (is4plus && free.length>=4) {
-      const mid=Math.floor((free.length-1)/2);
+      const hintIdx=free.findIndex(({row,col})=>(row===hint1Row&&col===hint1Col)||(row===hint2Row&&col===hint2Col));
+      const mid=hintIdx>=0?hintIdx:Math.floor((free.length-1)/2);
       laserMap.set(`${free[mid].row},${free[mid].col}`,dir);
       for (let i=0;i<free.length;i++) { if (i!==mid) removeKeys.add(`${free[i].row},${free[i].col}`); }
     } else {
@@ -662,7 +666,7 @@ function onSwapDone() {
     return;
   }
 
-  const {toRemove,toTransform}=checkBoard();
+  const {toRemove,toTransform}=checkBoard(r1,c1,r2,c2);
   if (!toRemove.length && !toTransform.length) {
     // swap back
     pendingSwap.back=true;
