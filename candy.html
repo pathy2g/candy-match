@@ -18,7 +18,7 @@
     canvas.grabbing { cursor: grabbing; }
     #nameInput, #passwordInput {
       position:fixed; display:none; font-size:18px; padding:8px 12px;
-      border-radius:8px; border:2px solid #a855f7; background:#1a0a2e;
+      border-radius:8px; border:none; background:#1a0a2e;
       color:#fff; outline:none; text-align:center; z-index:10; }
   </style>
 </head>
@@ -1159,12 +1159,6 @@ function drawMenu() {
     ctx.fillText('TOP 10 LEADERBOARD',cx,py+210);
     ctx.strokeStyle='rgba(150,70,255,.3)'; ctx.lineWidth=1;
     ctx.beginPath(); ctx.moveTo(px+20,py+216); ctx.lineTo(px+pw-20,py+216); ctx.stroke();
-
-    // Column labels
-    ctx.font='9px "Segoe UI",sans-serif'; ctx.fillStyle='#666';
-    ctx.textAlign='left'; ctx.fillText('#',px+20,py+230);
-    ctx.fillText('NAME',px+40,py+230);
-    ctx.textAlign='right'; ctx.fillText('SCORE / COMBO',px+pw-20,py+230);
 
     const maxLB=Math.min(leaderboard.length,10);
     for (let i=0;i<maxLB;i++) {
