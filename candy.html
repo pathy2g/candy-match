@@ -792,23 +792,18 @@ function computeLeaderboard() {
     .sort((a,b)=>b.highScore-a.highScore)
     .slice(0,10);
 }
-async function loadProfiles() {
+function loadProfiles() {
   try {
-    const res=await fetch('/api/profiles');
-    const list=await res.json();
-    profiles={};
-    list.forEach(p=>{ profiles[p.name]={highScore:p.highScore,highCombo:p.highCombo}; });
-    computeLeaderboard();
-  } catch(e) { profiles={}; computeLeaderboard(); }
+    const stored=localStorage.getItem('candyProfiles');
+    profiles=stored?JSON.parse(stored):{};
+  } catch(e) { profiles={}; }
+  computeLeaderboard();
 }
-async function saveCurrentProfile() {
-  if (!currentProfileName||!currentProfilePassword) return;
-  try {
-    await fetch('/api/save',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({name:currentProfileName,password:currentProfilePassword,highScore,highCombo})});
-    profiles[currentProfileName]={highScore,highCombo};
-    computeLeaderboard();
-  } catch(e) {}
+function saveCurrentProfile() {
+  if (!currentProfileName) return;
+  profiles[currentProfileName]={...( profiles[currentProfileName]||{}), highScore,highCombo};
+  try { localStorage.setItem('candyProfiles',JSON.stringify(profiles)); } catch(e) {}
+  computeLeaderboard();
 }
 function showNameInput() {
   const {py}=getPanelDims();
@@ -845,8 +840,8 @@ function startGame() {
   particles.length=0; floatingTexts.length=0; beams.length=0;
   initGrid(); menuState=null; hideNameInput(); hidePasswordInput();
 }
-async function returnToMenu() {
-  await saveCurrentProfile();
+function returnToMenu() {
+  saveCurrentProfile();
   phase='idle'; animPhase=''; pendingSwap=null; pendingComplete=null;
   particles.length=0; floatingTexts.length=0; beams.length=0;
   menuState='main';
@@ -857,30 +852,25 @@ function logOut() {
   menuState='landing';
   setTimeout(()=>{ showNameInput(); showPasswordInput(); }, 50);
 }
-async function createProfile(name, password) {
-  name=name.trim(); password=password.trim(); if (!name||!password) return;
-  const res=await fetch('/api/profiles',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name,password})});
-  const data=await res.json();
-  if (!data.ok) { profileError=data.error||'Could not create profile'; return; }
-  currentProfileName=name.toLowerCase().trim();
+function createProfile(name, password) {
+  name=name.trim().toLowerCase(); password=password.trim(); if (!name||!password) return;
+  if (profiles[name]) { profileError='Name already taken'; return; }
+  profiles[name]={highScore:0,highCombo:0,password};
+  try { localStorage.setItem('candyProfiles',JSON.stringify(profiles)); } catch(e) {}
+  currentProfileName=name;
   currentProfilePassword=password;
-  profiles[currentProfileName]={highScore:0,highCombo:0};
   computeLeaderboard();
   profileError='';
   menuState='main'; hideNameInput(); hidePasswordInput();
 }
-async function loginProfile(name, password) {
+function loginProfile(name, password) {
   name=name.trim().toLowerCase(); password=password.trim();
   if (!name||!password) return;
-  const res=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name,password})});
-  const data=await res.json();
-  if (!data.ok) { profileError=data.error||'Wrong name or password'; return; }
+  const p=profiles[name];
+  if (!p||p.password!==password) { profileError='Wrong name or password'; return; }
   currentProfileName=name;
   currentProfilePassword=password;
-  profiles[name]={highScore:data.highScore,highCombo:data.highCombo};
-  highScore=data.highScore; highCombo=data.highCombo;
+  highScore=p.highScore||0; highCombo=p.highCombo||0;
   computeLeaderboard();
   profileError='';
   menuState='main'; hideNameInput(); hidePasswordInput();
@@ -1349,9 +1339,8 @@ window.addEventListener('resize', () => {
 });
 
 menuState='landing';
-loadProfiles().then(()=>{
-  setTimeout(()=>{ showNameInput(); showPasswordInput(); }, 50);
-});
+loadProfiles();
+setTimeout(()=>{ showNameInput(); showPasswordInput(); }, 50);
 requestAnimationFrame(t=>{lastTime=t; requestAnimationFrame(loop);});
 </script>
 </body>
